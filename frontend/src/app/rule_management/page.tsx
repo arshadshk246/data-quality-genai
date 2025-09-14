@@ -346,7 +346,7 @@ const RuleManagementPage = () => {
               </Typography>
               {rules.map((rule) => (
                 <RuleCard
-                  key={rule.rule_id || rule.rule + rule.column_name}
+                  key={rule.rule_id}
                   rule={rule}
                   onDelete={handleDeleteRule}
                   onEdit={() => handleEditRule(rule)} 
