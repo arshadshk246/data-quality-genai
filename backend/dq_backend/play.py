@@ -1,9 +1,4 @@
-from utils import db_source
+from utils import db_source, get_info
 
-print(db_source)
-# Use COUNT(*) to count all rows in the table
-query = "select pincode from meter_data where pincode > 5000"
-result = db_source.run(query)
-
-print(result)  # Optional: print result to see the count
+print(get_info("meter_data", "pincode"))
 breakpoint()
