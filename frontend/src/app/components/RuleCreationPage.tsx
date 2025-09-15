@@ -19,9 +19,10 @@ import { ScrollableTable, ColumnInfo, DataRow } from "./ScrollableTable";
 import ChatButton from "./ChatButton";
 import ChatWindow from "./ChatWindow";
 
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export default function RuleCreationPage() {
+  const router = useRouter();
   const API_BASE_URL =
     process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
   const theme = useTheme();
@@ -254,6 +255,10 @@ export default function RuleCreationPage() {
     }
   };
 
+  const handleClick = () => {
+    router.push("/rule_management");
+  }
+
   return (
     <div className="flex h-screen w-screen relative">
       <ChatButton
@@ -270,14 +275,14 @@ export default function RuleCreationPage() {
 
       {/* Left Columns Table */}
       <div className="p-6 border-r border-gray-300 bg-white w-[750px]">
-        <Typography
-          variant="h6"
-          gutterBottom
-          fontWeight="bold"
-          color="text.primary"
-        >
-          Table: {tableName}
-        </Typography>
+        <div className="flex items-center justify-between mb-4">
+          <Typography variant="h6" fontWeight="bold" color="text.primary">
+            Table: {tableName}
+          </Typography>
+          <Button variant="contained" onClick={handleClick}>
+            Rule Management
+          </Button>
+        </div>
         <ScrollableTable
           columns={columns}
           data={tableData}
@@ -397,6 +402,35 @@ export default function RuleCreationPage() {
                 )}
               </Paper>
 
+              {/* Validate button */}
+              <Button
+                variant="contained"
+                color="success"
+                onClick={validateRule}
+              >
+                Validate
+              </Button>
+
+              {/* Pass rate progress bar */}
+              <Box>
+                <Typography variant="body2" color="textSecondary" gutterBottom>
+                  Pass Rate: {passPercent}%
+                </Typography>
+                <LinearProgress
+                  variant="determinate"
+                  value={passPercent}
+                  sx={{
+                    height: 12,
+                    borderRadius: 6,
+                    bgcolor: theme.palette.grey[300],
+                    "& .MuiLinearProgress-bar": {
+                      borderRadius: 6,
+                      bgcolor: theme.palette.success.main,
+                    },
+                  }}
+                />
+              </Box>
+
               {/* Only show validation section when valid SQL query exists */}
               {sqlQuery &&
                 sqlQuery !== "The rule could not be converted to SQL." && (
@@ -464,39 +498,6 @@ export default function RuleCreationPage() {
                         Warning
                       </Button>
                     </div>
-
-                    {/* Validate button */}
-                    <Button
-                      variant="contained"
-                      color="success"
-                      onClick={validateRule}
-                    >
-                      Validate
-                    </Button>
-
-                    {/* Pass rate progress bar */}
-                    <Box>
-                      <Typography
-                        variant="body2"
-                        color="textSecondary"
-                        gutterBottom
-                      >
-                        Pass Rate: {passPercent}%
-                      </Typography>
-                      <LinearProgress
-                        variant="determinate"
-                        value={passPercent}
-                        sx={{
-                          height: 12,
-                          borderRadius: 6,
-                          bgcolor: theme.palette.grey[300],
-                          "& .MuiLinearProgress-bar": {
-                            borderRadius: 6,
-                            bgcolor: theme.palette.success.main,
-                          },
-                        }}
-                      />
-                    </Box>
 
                     {/* Submit Button - Only shown when a category is selected */}
                     {selectedCategory && (

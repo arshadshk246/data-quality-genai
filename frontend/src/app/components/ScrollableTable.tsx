@@ -10,7 +10,8 @@ import {
   Tooltip,
   Typography,
   Box,
-  useTheme,
+  Button,
+  useTheme
 } from "@mui/material";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 
@@ -50,6 +51,7 @@ export function ScrollableTable({
   const containerWidth = COLUMN_WIDTH * VISIBLE_COLS;
 
   return (
+    <>
     <Paper
       sx={{
         maxHeight: height,
@@ -62,6 +64,7 @@ export function ScrollableTable({
       }}
       elevation={3}
     >
+      
       <TableContainer
         sx={{ minWidth: COLUMN_WIDTH * columns.length, overflowX: "auto" }}
       >
@@ -163,5 +166,6 @@ export function ScrollableTable({
         </Table>
       </TableContainer>
     </Paper>
+    </>
   );
 }
