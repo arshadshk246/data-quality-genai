@@ -90,7 +90,7 @@ Column: {column_name}
 
 Rules for query generation:
 1. The query MUST return only the row numbers of rows that FOLLOW the rule and not of rows that VIOLATE the rule (i.e., rows that satisfy the condition).
-2. Use ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) to generate row numbers.
+2. Row numbers should be strictly used from the column - row_num
 3. The query result must be a single column named row_num.
 4. Do NOT return actual column values.
 5. Do NOT run the query; just generate it.
