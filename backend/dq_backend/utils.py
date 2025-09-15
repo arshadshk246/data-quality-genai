@@ -24,12 +24,17 @@ import os
 checkpointer = MemorySaver()
 load_dotenv()
 
-# Paths
-DATA_BASE_PATH_SOURCE = r"C:\Users\OnkarPatil\Desktop\genai_data_quality\backend\data\source_data"
-DB_PATH_SOURCE = os.path.join(DATA_BASE_PATH_SOURCE, "conventional_power_plants", "conventional_power_plants.sqlite")
+# Get the absolute path of the folder where utils.py lives
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Go one level up (because utils.py is inside dq_backend)
+PROJECT_ROOT = os.path.dirname(BASE_DIR)
+# Build paths relative to project root
+DATA_BASE_PATH_SOURCE = os.path.join(PROJECT_ROOT, "data", "source_data")
+DB_PATH_SOURCE = os.path.join(DATA_BASE_PATH_SOURCE, "sample_mdm_db", "sample_mdm_db.sqlite")  # table name = meter_data
 
-DATA_BASE_PATH_RULES = r"C:\Users\OnkarPatil\Desktop\genai_data_quality\backend\data\rules"
+DATA_BASE_PATH_RULES = os.path.join(PROJECT_ROOT, "data", "rules")
 DB_PATH_RULES = os.path.join(DATA_BASE_PATH_RULES, "rule_management.sqlite")
+
 
 # Load database
 def load_database(db_path=DATA_BASE_PATH_SOURCE) -> Engine:
@@ -106,20 +111,20 @@ def get_query_test_results(query: str, column_name, table_name):
     results = ast.literal_eval(results)
     list_good_rows = [row[0] for row in results]
     
-    query_to_get_total_rows = f"SELECT COUNT({column_name}) AS row_count FROM {table_name};"
+    query_to_get_total_rows = f"SELECT COUNT(*) AS row_count FROM {table_name};"
     result = db_source.run(query_to_get_total_rows)
     if result:
         result = ast.literal_eval(result)
         total_rows = result[0][0]
-        percentage_bad_rows = (len(list_good_rows)*100)/total_rows
+        percentage_good_rows = (len(list_good_rows)*100)/total_rows
     else:
         total_rows = None
-        percentage_bad_rows = None
+        percentage_good_rows = None
 
     return {
         "total_rows":total_rows,
         "total_good_rows":len(list_good_rows),
-        "percentage_bad_rows":percentage_bad_rows,
+        "percentage_good_rows":percentage_good_rows,
         "list_good_rows":list_good_rows,
     }
 
@@ -220,6 +225,15 @@ def load_col_values(table_name, column_name, offset, limit):
         values_dict[offset + i + 1] = row[0]
     
     return values_dict
+
+# converts the user output query to validation query
+def transform_query(query: str) -> str:
+    query_lower = query.lower().strip()
+    before_from, after_from = query_lower.split("from", 1)
+    
+    # Replace everything before FROM with 'select row_num '
+    new_query = f"select row_num from {after_from.strip()}"
+    return new_query
 
 # ------------------------------------------ agents and llm calls ---------------------------------------------------
 
@@ -368,7 +382,6 @@ def convert_rule_to_sql(rule, table_name, column_name):
         query_ready = False
 
     return query_ready, output
-
 
 chatbot = know_all_agent()
 
