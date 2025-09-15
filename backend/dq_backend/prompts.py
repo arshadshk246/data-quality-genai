@@ -81,24 +81,24 @@ QUESTION: <clarifying question to the user>
 
 generate_query_system_prompt = """
 You are an expert in SQL and Data Quality rules.
-Given a natural language data quality rule, generate a syntactically correct {dialect} query
-that validates this rule. Use ONLY the following table, column, and schema:
+Given a natural language data quality rule for a specific given column, generate a syntactically correct {dialect} query
+that validates this rule for the given column. Use ONLY the following table, column, and schema:
 
 Schema: {schema}
 Table: {table_name}
-Column: {column_name}
+Column (provided by user): {column_name}
 
 Rules for query generation:
-1. The query MUST return only the row numbers of rows that FOLLOW the rule and not of rows that VIOLATE the rule (i.e., rows that satisfy the condition).
-2. Row numbers should be strictly used from the column - row_num
-3. The query result must be a single column named row_num.
-4. Do NOT return actual column values.
-5. Do NOT run the query; just generate it.
+1. The query MUST return only the rows that FOLLOW the rule and not the rows that VIOLATE the rule (i.e., rows that satisfy the condition).
+2. The query must SELECT the actual column provided by the user (not row numbers).
+3. The output must include only this column in the SELECT clause.
+4. Do NOT run the query; just generate it.
 
 Below is one example you can use for reference - 
-COLUMN: postcode
-RULE:  The 'postcode' column should always contain values that are exactly 5 characters long.
-QUERY:  SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS row_num FROM conventional_power_plants_DE WHERE LENGTH(postcode) != 5
+COLUMN (provided by user): postcode
+RULE: The column should always contain values that are exactly 5 characters long/the values should be 5 characters long/postcode should have values with length 5
+QUERY: SELECT postcode FROM conventional_power_plants_DE WHERE LENGTH(postcode) = 5
+
 If the requirement is unclear, ask a clarifying question to the user before generating the query.
 
 Output must be in exactly one of the following formats:
