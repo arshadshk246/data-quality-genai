@@ -45,6 +45,7 @@ class TableDataRequest(BaseModel):
     table_name: str = Field(..., description="Name of the database table", example="meter_data")
     offset: int = Field(default=0, description="Row offset (for pagination)", example=0)
     limit: int = Field(default=100, description="Maximum number of rows to return", example=50)
+    total_rows: int = Field(description="Maximum number of rows to return", example=get_total_rows("meter_data"))
 
 
 class ColumnDataRequest(BaseModel):
@@ -114,8 +115,8 @@ def get_all_rules_of_table_api(table_name: str = Query(..., description="Table n
 
 @app.post("/get_table_data/")
 def get_table_data_api(request: TableDataRequest):
-    total_rows = get_total_rows(request.table_name)
-    columns, data = load_table_values(request.table_name, request.offset, total_rows)
+    # total_rows = get_total_rows(request.table_name)
+    columns, data = load_table_values(request.table_name, request.offset, request.limit)
     return JSONResponse(content={"columns": columns, "rows": data})
 
 
