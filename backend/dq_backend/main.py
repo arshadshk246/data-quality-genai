@@ -6,7 +6,7 @@ import uuid
 from utils import (
     convert_rule_to_sql, insert_rule, delete_rule,
     get_rule_suggestion_on_column, get_all_rules_of_table,
-    get_query_test_results, load_table_values, load_col_values, transform_query, get_info, chatbot
+    get_query_test_results, load_table_values, load_col_values, transform_query, get_info, get_total_rows, chatbot
 )
 from langchain_core.messages import HumanMessage
 
@@ -51,7 +51,7 @@ class ColumnDataRequest(BaseModel):
     table_name: str = Field(..., description="Name of the database table", example="meter_data")
     column_name: str = Field(..., description="Column on which the rule is applied", example="pincode")
     offset: int = Field(default=0, description="Row offset (for pagination)", example=0)
-    limit: int = Field(default=100, description="Maximum number of rows to return", example=50)
+    limit: int = Field(description="Maximum number of rows to return", example=50)
 
 
 class ChatbotRequest(BaseModel):
@@ -106,14 +106,16 @@ def get_rule_suggestion_api(request: RuleSuggestionRequest):
 
 
 @app.get("/get_all_rules_of_table/")
-def get_all_rules_of_table_api(table_name: str = Query(..., description="Table name", example="customers")):
-    rules = get_all_rules_of_table(table_name)
+def get_all_rules_of_table_api(table_name: str = Query(..., description="Table name", example="meter_data"),
+                               column_name: str = Query(..., description="Column name", example="pincode")):
+    rules = get_all_rules_of_table(table_name, column_name)
     return JSONResponse(content={"rules": rules})
 
 
 @app.post("/get_table_data/")
 def get_table_data_api(request: TableDataRequest):
-    columns, data = load_table_values(request.table_name, request.offset, request.limit)
+    total_rows = get_total_rows(request.table_name)
+    columns, data = load_table_values(request.table_name, request.offset, total_rows)
     return JSONResponse(content={"columns": columns, "rows": data})
 
 

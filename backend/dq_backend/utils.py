@@ -172,8 +172,8 @@ def get_existing_rules_on_column(column_name, table_name):
     return flat_list
 
 # Get all rules for a table
-def get_all_rules_of_table(table_name):
-    query = f"SELECT rule, table_name, column_name, rule_category, sql_query FROM rule_storage WHERE table_name = '{table_name}'"
+def get_all_rules_of_table(table_name, column_name=None):
+    query = f"SELECT rule, table_name, column_name, rule_category, sql_query FROM rule_storage WHERE table_name = '{table_name}' AND column_name = '{column_name}'"
     results = db_rules.run(query)
     # breakpoint()
     if not results:
@@ -234,6 +234,16 @@ def transform_query(query: str) -> str:
     # Replace everything before FROM with 'select row_num '
     new_query = f"select row_num from {after_from.strip()}"
     return new_query
+
+#
+def get_total_rows(table_name):
+    # total count
+    query = f"SELECT COUNT(*) AS total_count FROM {table_name};"
+    result = db_source.run(query)
+    result = ast.literal_eval(result)
+    total_rows = result[0][0]
+
+    return total_rows
 
 # get info on the column
 def get_info(table_name, column_name):
