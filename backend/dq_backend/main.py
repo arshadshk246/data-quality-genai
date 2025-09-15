@@ -6,7 +6,7 @@ import uuid
 from utils import (
     convert_rule_to_sql, insert_rule, delete_rule,
     get_rule_suggestion_on_column, get_all_rules_of_table,
-    get_query_test_results, load_table_values, load_col_values, transform_query, chatbot
+    get_query_test_results, load_table_values, load_col_values, transform_query, get_info, chatbot
 )
 from langchain_core.messages import HumanMessage
 
@@ -56,14 +56,18 @@ class ColumnDataRequest(BaseModel):
 
 class ChatbotRequest(BaseModel):
     user_input: str = Field(..., description="User query or message to the AI chatbot", example="Suggest a rule for validating not null values")
-    table_name: str = Field(..., description="Name of the database table", example="conventional_power_plants_DE")
-    column_name: str = Field(..., description="Column on which the rule is applied", example="postcode")
+    table_name: str = Field(..., description="Name of the database table", example="meter_data")
+    column_name: str = Field(..., description="Column on which the rule is applied", example="pincode")
 
 
 class ValidateSQLRequest(BaseModel):
     sql_query: str = Field(..., description="SQL representation of the rule", example="SELECT row_num FROM meter_data WHERE pincode IS NOT NULL")
-    table_name: str = Field(..., description="Name of the database table", example="conventional_power_plants_DE")
-    column_name: str = Field(..., description="Column on which the rule is applied", example="postcode")
+    table_name: str = Field(..., description="Name of the database table", example="meter_data")
+    column_name: str = Field(..., description="Column on which the rule is applied", example="pincode")
+
+class InfoRequest(BaseModel):
+    table_name: str = Field(..., description="Name of the database table", example="meter_data")
+    column_name: str = Field(..., description="Column on which the rule is applied", example="pincode")
 
 
 # API Endpoints
@@ -71,11 +75,7 @@ class ValidateSQLRequest(BaseModel):
 @app.post("/convert_rule_to_sql/")
 def convert_rule_to_sql_api(request: ConvertRuleRequest):
     sql_output = convert_rule_to_sql(request.rule, request.table_name, request.column_name)
-    if sql_output[0]:
-        stats_dict = get_query_test_results(sql_output[1], request.column_name, request.table_name)
-    else:
-        stats_dict = None
-    return JSONResponse(content={"sql_output": sql_output, "stats": stats_dict})
+    return JSONResponse(content={"sql_output": sql_output})
 
 
 @app.post("/validate_sql_query/")
@@ -130,3 +130,9 @@ def chatbot_api(request: ChatbotRequest):
         config={"configurable": {"thread_id": "thread_id-1"}}
     )
     return JSONResponse(content={"AI Response": response["messages"][-1].content})
+
+
+@app.post("/info/")
+def info_api(request: InfoRequest):
+    info = get_info(request.table_name, request.column_name)
+    return JSONResponse(content={"info": info})

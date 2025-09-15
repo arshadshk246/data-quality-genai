@@ -235,6 +235,29 @@ def transform_query(query: str) -> str:
     new_query = f"select row_num from {after_from.strip()}"
     return new_query
 
+# get info on the column
+def get_info(table_name, column_name):
+    # total count
+    query = f"SELECT COUNT(*) AS total_count FROM {table_name};"
+    result = db_source.run(query)
+    result = ast.literal_eval(result)
+    total_rows = result[0][0]
+    # total unique count
+    query = f"SELECT COUNT(DISTINCT {column_name}) AS unique_count FROM {table_name} WHERE {column_name} IS NOT NULL;"
+    result = db_source.run(query)
+    result = ast.literal_eval(result)
+    total_unique_values = result[0][0]
+    # total null values
+    query = f"SELECT COUNT(*) AS null_count FROM {table_name} WHERE {column_name} IS NULL;"
+    result = db_source.run(query)
+    result = ast.literal_eval(result)
+    total_null_values = result[0][0]
+
+    return total_rows, total_unique_values, total_null_values
+
+
+
+
 # ------------------------------------------ agents and llm calls ---------------------------------------------------
 
 # Agent - Tells stuff on the column and helps to create rules
