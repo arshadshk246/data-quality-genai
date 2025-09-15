@@ -15,7 +15,7 @@ from langchain_community.agent_toolkits import SQLDatabaseToolkit
 from typing import TypedDict, Annotated, Literal
 from sqlalchemy import text
 from sqlalchemy import text
-from prompts import suggest_rule_prompt, generate_query_system_prompt, check_query_system_prompt, col_know_all_prompt_with_rules
+from .prompts import suggest_rule_prompt, generate_query_system_prompt, check_query_system_prompt, col_know_all_prompt_with_rules
 
 import os
 
@@ -24,17 +24,12 @@ import os
 checkpointer = MemorySaver()
 load_dotenv()
 
-# Get the absolute path of the folder where utils.py lives
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Go one level up (because utils.py is inside dq_backend)
-PROJECT_ROOT = os.path.dirname(BASE_DIR)
-# Build paths relative to project root
-DATA_BASE_PATH_SOURCE = os.path.join(PROJECT_ROOT, "data", "source_data")
-DB_PATH_SOURCE = os.path.join(DATA_BASE_PATH_SOURCE, "sample_mdm_db", "sample_mdm_db.sqlite")  # table name = meter_data
+# Paths
+DATA_BASE_PATH_SOURCE = r"C:\Users\ArshadShaikh\Desktop\React\hackathon\data-quality-genai\backend\data\source_data"
+DB_PATH_SOURCE = r"C:\Users\ArshadShaikh\Desktop\React\hackathon\data-quality-genai\backend\data\source_data\conventional_power_plants\conventional_power_plants.sqlite"
 
-DATA_BASE_PATH_RULES = os.path.join(PROJECT_ROOT, "data", "rules")
+DATA_BASE_PATH_RULES = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "rules")
 DB_PATH_RULES = os.path.join(DATA_BASE_PATH_RULES, "rule_management.sqlite")
-
 
 # Load database
 def load_database(db_path=DATA_BASE_PATH_SOURCE) -> Engine:
@@ -48,6 +43,9 @@ def get_llm():
 
 # Get db
 def get_db(db_path):
+    print(f"Creating database engine for path: {db_path}")
+    if not os.path.exists(db_path):
+        raise FileNotFoundError(f"Database file not found at {db_path}")
     engine = create_engine(f"sqlite:///{db_path}", poolclass=StaticPool)
     db = SQLDatabase(engine)
     return db
@@ -111,7 +109,7 @@ def get_query_test_results(query: str, column_name, table_name):
     results = ast.literal_eval(results)
     list_good_rows = [row[0] for row in results]
     
-    query_to_get_total_rows = f"SELECT COUNT(*) AS row_count FROM {table_name};"
+    query_to_get_total_rows = f"SELECT COUNT({column_name}) AS row_count FROM {table_name};"
     result = db_source.run(query_to_get_total_rows)
     if result:
         result = ast.literal_eval(result)
@@ -137,12 +135,30 @@ def run_query(query: str, db_path=DATA_BASE_PATH_SOURCE):
 
 # Insert rule in the rules storage table
 def insert_rule(rule_id, rule, table_name, column_name, rule_category, sql_query):
-    query = f"""
+    query = text("""
         INSERT INTO rule_storage (rule_id, rule, table_name, column_name, rule_category, sql_query)
-        VALUES ('{rule_id}', '{rule}', '{table_name}', '{column_name}', '{rule_category}', '{sql_query}')
-    """
-    db_rules.run(query)
-    print(f"✅ Rule '{rule_id}' inserted successfully.")
+        VALUES (:rule_id, :rule, :table_name, :column_name, :rule_category, :sql_query)
+    """)
+    
+    # Use parameterized query with dictionary of parameters
+    params = {
+        'rule_id': rule_id,
+        'rule': rule,
+        'table_name': table_name,
+        'column_name': column_name,
+        'rule_category': rule_category,
+        'sql_query': sql_query
+    }
+    
+    try:
+        engine = create_engine(f"sqlite:///{DB_PATH_RULES}", poolclass=StaticPool)
+        with engine.connect() as conn:
+            conn.execute(query, params)
+            conn.commit()
+        print(f"✅ Rule '{rule_id}' inserted successfully.")
+    except Exception as e:
+        print(f"Error inserting rule: {str(e)}")
+        raise e
 
 # Get top values from a column
 def get_top_values(table_name: str, column_name: str, db_path=DATA_BASE_PATH_SOURCE, limit: int = 200):
@@ -172,14 +188,14 @@ def get_existing_rules_on_column(column_name, table_name):
     return flat_list
 
 # Get all rules for a table
-def get_all_rules_of_table(table_name, column_name=None):
-    query = f"SELECT rule, table_name, column_name, rule_category, sql_query FROM rule_storage WHERE table_name = '{table_name}' AND column_name = '{column_name}'"
+def get_all_rules_of_table(table_name):
+    query = f"SELECT rule_id, rule, table_name, column_name, rule_category, sql_query FROM rule_storage WHERE table_name = '{table_name}'"
     results = db_rules.run(query)
     # breakpoint()
     if not results:
         return []
     results = ast.literal_eval(results)
-    keys = ["rule", "table_name", "column_name", "rule_category", "sql_query"]
+    keys = ["rule_id","rule", "table_name", "column_name", "rule_category", "sql_query"]
     # convert each tuple into a dictionary
     dict_list = [dict(zip(keys, row)) for row in results]
 
@@ -187,11 +203,64 @@ def get_all_rules_of_table(table_name, column_name=None):
 
 # load table and its values - chunk by chunk
 def load_table_values(table_name, offset, limit):
-    query = f"""
-    SELECT * 
-    FROM {table_name} 
-    LIMIT {limit} OFFSET {offset}
-    """
+    try:
+        print(f"Database path: {DB_PATH_SOURCE}")
+        
+        # First get list of tables
+        tables_query = """
+        SELECT 
+            m.name as table_name,
+            m.type as table_type,
+            m.sql as table_sql
+        FROM sqlite_master m
+        WHERE m.type = 'table'
+        """
+        tables_result = db_source.run(tables_query)
+        print(f"Tables query result: {tables_result}")
+        
+        if not tables_result:
+            print("No tables found in database")
+            return ["No tables found"], []
+        
+        tables = ast.literal_eval(tables_result)
+        print(f"Raw tables data: {tables}")
+        
+        # Extract table names and their create statements
+        available_tables = []
+        for table in tables:
+            print(f"Table info: {table}")
+            available_tables.append(table[0])
+        print(f"Available tables: {available_tables}")
+        
+        if table_name not in available_tables:
+            print(f"Table {table_name} not found in available tables")
+            return [f"Table {table_name} not found. Available tables: {available_tables}"], []
+        
+        query = f"""
+        SELECT * 
+        FROM {table_name} 
+        LIMIT {limit} OFFSET {offset}
+        """
+        print(f"Executing query: {query}")
+        results = db_source.run(query)
+        print(f"Query results: {results}")
+        
+        if not results:
+            return ["No data found"], []
+            
+        results = ast.literal_eval(results)
+        columns_query = f"PRAGMA table_info({table_name})"
+        columns_result = db_source.run(columns_query)
+        columns_result = ast.literal_eval(columns_result)
+        columns = [col[1] for col in columns_result]
+        
+        # Convert results to list of dicts
+        data = [dict(zip(columns, row)) for row in results]
+        return columns, data
+        
+    except Exception as e:
+        print(f"Error in load_table_values: {str(e)}")
+        return [f"Error: {str(e)}"], []
     results = db_source.run(query)  # returns list of tuples
     if not results:
         return None, None
@@ -225,48 +294,6 @@ def load_col_values(table_name, column_name, offset, limit):
         values_dict[offset + i + 1] = row[0]
     
     return values_dict
-
-# converts the user output query to validation query
-def transform_query(query: str) -> str:
-    query_lower = query.lower().strip()
-    before_from, after_from = query_lower.split("from", 1)
-    
-    # Replace everything before FROM with 'select row_num '
-    new_query = f"select row_num from {after_from.strip()}"
-    return new_query
-
-#
-def get_total_rows(table_name):
-    # total count
-    query = f"SELECT COUNT(*) AS total_count FROM {table_name};"
-    result = db_source.run(query)
-    result = ast.literal_eval(result)
-    total_rows = result[0][0]
-
-    return total_rows
-
-# get info on the column
-def get_info(table_name, column_name):
-    # total count
-    query = f"SELECT COUNT(*) AS total_count FROM {table_name};"
-    result = db_source.run(query)
-    result = ast.literal_eval(result)
-    total_rows = result[0][0]
-    # total unique count
-    query = f"SELECT COUNT(DISTINCT {column_name}) AS unique_count FROM {table_name} WHERE {column_name} IS NOT NULL;"
-    result = db_source.run(query)
-    result = ast.literal_eval(result)
-    total_unique_values = result[0][0]
-    # total null values
-    query = f"SELECT COUNT(*) AS null_count FROM {table_name} WHERE {column_name} IS NULL;"
-    result = db_source.run(query)
-    result = ast.literal_eval(result)
-    total_null_values = result[0][0]
-
-    return total_rows, total_unique_values, total_null_values
-
-
-
 
 # ------------------------------------------ agents and llm calls ---------------------------------------------------
 
@@ -416,6 +443,7 @@ def convert_rule_to_sql(rule, table_name, column_name):
 
     return query_ready, output
 
+
 chatbot = know_all_agent()
 
 def call_know_all_agent():
@@ -423,4 +451,3 @@ def call_know_all_agent():
     response = chatbot.invoke({"messages":[HumanMessage(content=user_input)],"current_column":"postcode"},
                     config={"configurable":{"thread_id":"thread_id-1"}})
     return response["messages"][-1].content
-
