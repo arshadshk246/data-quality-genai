@@ -14,12 +14,12 @@ import {
   FormControl,
   Select,
   MenuItem,
-  SelectChangeEvent,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   Button,
+  SelectChangeEvent,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import InfoIcon from "@mui/icons-material/Info";
@@ -30,7 +30,6 @@ import EditIcon from "@mui/icons-material/Edit";
 import { styled } from "@mui/material/styles";
 import { useRouter } from "next/navigation";
 
-// Types
 interface Rule {
   rule_id: string;
   rule: string;
@@ -52,9 +51,7 @@ const ExpandMore = styled(
     expand: boolean;
     onClick: () => void;
     children: React.ReactNode;
-  }) => {
-    return <IconButton {...other} />;
-  }
+  }) => <IconButton {...other} />
 )(({ theme, expand }: { theme: any; expand: boolean }) => ({
   transform: !expand ? "rotate(0deg)" : "rotate(180deg)",
   transition: theme.transitions.create("transform", {
@@ -62,8 +59,6 @@ const ExpandMore = styled(
   }),
 }));
 
-
-// DeleteConfirmationDialog Component
 const DeleteConfirmationDialog = ({
   open,
   onClose,
@@ -94,25 +89,18 @@ const RuleCard = ({
 }: {
   rule: Rule;
   onDelete: (ruleId: string) => void;
-  onEdit: (columnName: string) => void;
+  onEdit: (rule: Rule) => void;
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
-  const handleExpandClick = () => setExpanded(!expanded);
-
+  const handleExpandClick = () => setExpanded((prev) => !prev);
   const handleDeleteClick = () => setDeleteDialogOpen(true);
-
-    const handleEditClick = () => {
-      if (onEdit) {
-        onEdit(rule.column_name); 
-      }
-    };
-
   const handleDeleteConfirm = () => {
     onDelete(rule.rule_id);
     setDeleteDialogOpen(false);
   };
+  const handleEditClick = () => onEdit(rule);
 
   const getCategoryIcon = (category: Rule["rule_category"]) => {
     switch (category) {
@@ -146,9 +134,8 @@ const RuleCard = ({
         <CardHeader
           title={
             <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-              <Typography variant="h6">
-                {rule.rule ? rule.rule.substring(0, 100) : "N/A"}
-                {rule.rule && rule.rule.length > 100 ? "..." : ""}
+              <Typography variant="h6" noWrap>
+                {rule.rule || "N/A"}
               </Typography>
               <Chip
                 icon={getCategoryIcon(rule.rule_category)}
@@ -230,46 +217,44 @@ const RuleCard = ({
 
 const RuleManagementPage = () => {
   const router = useRouter();
+  const [isClient, setIsClient] = useState(false);
   const [selectedTable, setSelectedTable] = useState<string>(DEFAULT_TABLE);
   const [rules, setRules] = useState<Rule[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  
-
-  const fetchRules = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/get_all_rules_of_table/?table_name=${selectedTable}`,
-        { method: "GET" }
-      );
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch rules: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      setRules(Array.isArray(data.rules) ? data.rules : []);
-    } catch (error) {
-      console.error("Error fetching rules:", error);
-      setError(
-        error instanceof Error
-          ? error.message
-          : "An error occurred while fetching rules"
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   useEffect(() => {
-    fetchRules();
-  }, [selectedTable]);
+    if (!isClient) return;
 
-  const handleTableChange = (event: SelectChangeEvent<string>) => {
-    setSelectedTable(event.target.value);
+    const fetchRules = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/get_all_rules_of_table/?table_name=${selectedTable}`,
+          { method: "GET" }
+        );
+        if (!response.ok) {
+          throw new Error(`Failed to fetch rules: ${response.statusText}`);
+        }
+        const data = await response.json();
+        setRules(Array.isArray(data.rules) ? data.rules : []);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Error fetching rules");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRules();
+  }, [selectedTable, isClient]);
+
+  const handleTableChange = (event: SelectChangeEvent) => {
+    setSelectedTable(event.target.value as string);
   };
 
   const handleEditRule = (rule: Rule) => {
@@ -284,26 +269,21 @@ const RuleManagementPage = () => {
     try {
       const response = await fetch(`${API_BASE_URL}/delete_rule/`, {
         method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rule_id: ruleId }),
       });
-
       if (!response.ok) {
         throw new Error("Failed to delete rule");
       }
-
-      await fetchRules(); 
-    } catch (error) {
-      console.error("Error deleting rule:", error);
-      setError(
-        error instanceof Error
-          ? error.message
-          : "An error occurred while deleting the rule"
-      );
+      setRules((prev) => prev.filter((r) => r.rule_id !== ruleId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error deleting the rule");
     }
   };
+
+  if (!isClient) {
+    return <div>Loading...</div>;
+  }
 
   return (
     <Box sx={{ p: 3, maxWidth: 1200, mx: "auto" }}>
@@ -319,7 +299,7 @@ const RuleManagementPage = () => {
           sx={{ bgcolor: "background.paper" }}
         >
           <MenuItem value={DEFAULT_TABLE}>{DEFAULT_TABLE}</MenuItem>
-          {/* Add more tables here or dynamically */}
+          {/* Add more tables here */}
         </Select>
       </FormControl>
 
@@ -349,7 +329,7 @@ const RuleManagementPage = () => {
                   key={rule.rule_id}
                   rule={rule}
                   onDelete={handleDeleteRule}
-                  onEdit={() => handleEditRule(rule)} 
+                  onEdit={handleEditRule}
                 />
               ))}
             </>
