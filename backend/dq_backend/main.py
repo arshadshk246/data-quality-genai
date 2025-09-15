@@ -1,12 +1,13 @@
 from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import uuid
-from utils import (
+from .utils import (
     convert_rule_to_sql, insert_rule, delete_rule,
     get_rule_suggestion_on_column, get_all_rules_of_table,
-    get_query_test_results, load_table_values, load_col_values, transform_query, chatbot
+    get_query_test_results, load_table_values, load_col_values, chatbot
 )
 from langchain_core.messages import HumanMessage
 
@@ -16,19 +17,29 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Configure CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins in development
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
+
 
 class ConvertRuleRequest(BaseModel):
-    table_name: str = Field(..., description="Name of the database table", example="meter_data")
-    column_name: str = Field(..., description="Column on which the rule is applied", example="pincode")
+    table_name: str = Field(..., description="Name of the database table", example="conventional_power_plants_DE")
+    column_name: str = Field(..., description="Column on which the rule is applied", example="postcode")
     rule: str = Field(..., description="Rule text to be converted into SQL", example="there should not be a null value")
 
 
 class AddRuleRequest(BaseModel):
     rule: str = Field(..., description="Rule text to be converted into SQL", example="there should not be a null value")
-    table_name: str = Field(..., description="Name of the database table", example="meter_data")
-    column_name: str = Field(..., description="Column on which the rule is applied", example="pincode")
+    table_name: str = Field(..., description="Name of the database table", example="conventional_power_plants_DE")
+    column_name: str = Field(..., description="Column on which the rule is applied", example="postcode")
     rule_category: str = Field(..., description="Category of rule (e.g., info, warning, error)", example="info")
-    sql_query: str = Field(..., description="SQL representation of the rule", example="SELECT row_num FROM meter_data WHERE pincode IS NOT NULL")
+    sql_query: str = Field(..., description="SQL representation of the rule", example="SELECT * FROM customers WHERE age <= 18")
 
 
 class DeleteRuleRequest(BaseModel):
@@ -36,20 +47,26 @@ class DeleteRuleRequest(BaseModel):
 
 
 class RuleSuggestionRequest(BaseModel):
-    table_name: str = Field(..., description="Name of the database table", example="meter_data")
-    column_name: str = Field(..., description="Column on which the rule is applied", example="pincode")
+    table_name: str = Field(..., description="Name of the database table", example="conventional_power_plants_DE")
+    column_name: str = Field(..., description="Column on which the rule is applied", example="postcode")
     existing_rules: Optional[List[str]] = Field(default=[], description="List of existing rules for the column", example=["must not be null", "must be unique"])
 
 
+class ValidateQueryRequest(BaseModel):
+    sql_query: str = Field(..., description="SQL query to be validated", example="SELECT * FROM customers WHERE age < 18")
+    table_name: str = Field(..., description="Name of the database table", example="conventional_power_plants_DE")
+    column_name: str = Field(..., description="Column on which the rule is applied", example="postcode")
+
+
 class TableDataRequest(BaseModel):
-    table_name: str = Field(..., description="Name of the database table", example="meter_data")
+    table_name: str = Field(..., description="Name of the database table", example="conventional_power_plants_DE")
     offset: int = Field(default=0, description="Row offset (for pagination)", example=0)
     limit: int = Field(default=100, description="Maximum number of rows to return", example=50)
 
 
 class ColumnDataRequest(BaseModel):
-    table_name: str = Field(..., description="Name of the database table", example="meter_data")
-    column_name: str = Field(..., description="Column on which the rule is applied", example="pincode")
+    table_name: str = Field(..., description="Name of the database table", example="conventional_power_plants_DE")
+    column_name: str = Field(..., description="Column on which the rule is applied", example="postcode")
     offset: int = Field(default=0, description="Row offset (for pagination)", example=0)
     limit: int = Field(default=100, description="Maximum number of rows to return", example=50)
 
@@ -60,29 +77,12 @@ class ChatbotRequest(BaseModel):
     column_name: str = Field(..., description="Column on which the rule is applied", example="postcode")
 
 
-class ValidateSQLRequest(BaseModel):
-    sql_query: str = Field(..., description="SQL representation of the rule", example="SELECT row_num FROM meter_data WHERE pincode IS NOT NULL")
-    table_name: str = Field(..., description="Name of the database table", example="conventional_power_plants_DE")
-    column_name: str = Field(..., description="Column on which the rule is applied", example="postcode")
-
-
 # API Endpoints
 
 @app.post("/convert_rule_to_sql/")
 def convert_rule_to_sql_api(request: ConvertRuleRequest):
-    sql_output = convert_rule_to_sql(request.rule, request.table_name, request.column_name)
-    if sql_output[0]:
-        stats_dict = get_query_test_results(sql_output[1], request.column_name, request.table_name)
-    else:
-        stats_dict = None
-    return JSONResponse(content={"sql_output": sql_output, "stats": stats_dict})
-
-
-@app.post("/validate_sql_query/")
-def validate_sql_query(request: ValidateSQLRequest):
-    validation_sql_query = transform_query(request.sql_query)
-    stats_dict = get_query_test_results(validation_sql_query, request.column_name, request.table_name)
-    return JSONResponse(content={"stats": stats_dict})
+    output = convert_rule_to_sql(request.rule, request.table_name, request.column_name)
+    return JSONResponse(content={"sql": output})
 
 
 @app.put("/add_rule/")
@@ -109,6 +109,12 @@ def get_rule_suggestion_api(request: RuleSuggestionRequest):
 def get_all_rules_of_table_api(table_name: str = Query(..., description="Table name", example="customers")):
     rules = get_all_rules_of_table(table_name)
     return JSONResponse(content={"rules": rules})
+
+
+@app.post("/validate_query/")
+def validate_query_api(request: ValidateQueryRequest):
+    stats_dict = get_query_test_results(request.sql_query, request.column_name, request.table_name)
+    return JSONResponse(content={"stats": stats_dict})
 
 
 @app.post("/get_table_data/")
