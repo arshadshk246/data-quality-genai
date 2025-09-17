@@ -32,11 +32,10 @@ export default function RuleCreationPage() {
 
   const searchParams = useSearchParams();
   const defaultSelectedColumn = searchParams.get("selectedColumn") || null;
-  const defaultTableName =
-    searchParams.get("tableName") || "conventional_power_plants_DE";
+  const defaultTableName = searchParams.get("tableName") || "meter_data";
 
   const fetchTableData = async () => {
-    setTableName("conventional_power_plants_DE");
+    setTableName("meter_data");
 
     try {
       const response = await fetch(`${API_BASE_URL}/get_table_data/`, {
@@ -89,7 +88,7 @@ export default function RuleCreationPage() {
   React.useEffect(() => {
     fetchTableData();
   }, [tableName]);
-  
+
   const handleRuleSelect = (rule: string) => {
     setGeneratedRule(rule);
   };
@@ -131,7 +130,7 @@ export default function RuleCreationPage() {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/validate_query/`, {
+      const response = await fetch(`${API_BASE_URL}/validate_sql_query/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -145,7 +144,8 @@ export default function RuleCreationPage() {
       if (!response.ok) throw new Error("API request failed");
 
       const data = await response.json();
-
+      console.log(data);
+      
       const stats = data?.stats;
       if (!stats) throw new Error("No stats in response");
 
@@ -170,6 +170,8 @@ export default function RuleCreationPage() {
 
     setSqlLoading(true);
     try {
+      console.log(tableName, selectedColumn, generatedRule);
+      
       const response = await fetch(`${API_BASE_URL}/convert_rule_to_sql/`, {
         method: "POST",
         headers: {
@@ -184,9 +186,11 @@ export default function RuleCreationPage() {
 
       if (!response.ok) throw new Error("API request failed");
       const data = await response.json();
+      console.log(data);
 
-      if (data.sql[0] == true) {
-        setSqlQuery(data.sql[1]);
+      if (data.sql_output[0] == true) {
+        console.log(data.sql_output[0]);
+        setSqlQuery(data.sql_output[1]);
       } else {
         setSqlQuery("The rule could not be converted to SQL.");
       }
@@ -219,7 +223,8 @@ export default function RuleCreationPage() {
           table_name: tableName,
           column_name: selectedColumn,
           rule_category: selectedCategory,
-          sql_query: sqlQuery,
+          sql_query_usr: sqlQuery,
+          sql_query_val: sqlQuery
         }),
       });
 
@@ -257,7 +262,7 @@ export default function RuleCreationPage() {
 
   const handleClick = () => {
     router.push("/rule_management");
-  }
+  };
 
   return (
     <div className="flex h-screen w-screen relative">

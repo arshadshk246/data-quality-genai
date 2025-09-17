@@ -31,17 +31,17 @@ import { styled } from "@mui/material/styles";
 import { useRouter } from "next/navigation";
 
 interface Rule {
-  rule_id: string;
+  rule_id: number;
   rule: string;
   table_name: string;
   column_name: string;
   rule_category: "info" | "error" | "warning";
-  sql_query: string;
+  sql_query_usr: string;
 }
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-const DEFAULT_TABLE = "conventional_power_plants_DE";
+const DEFAULT_TABLE = "meter_data";
 
 const ExpandMore = styled(
   ({
@@ -88,7 +88,7 @@ const RuleCard = ({
   onEdit,
 }: {
   rule: Rule;
-  onDelete: (ruleId: string) => void;
+  onDelete: (ruleId: number) => void;
   onEdit: (rule: Rule) => void;
 }) => {
   const [expanded, setExpanded] = useState(false);
@@ -97,6 +97,8 @@ const RuleCard = ({
   const handleExpandClick = () => setExpanded((prev) => !prev);
   const handleDeleteClick = () => setDeleteDialogOpen(true);
   const handleDeleteConfirm = () => {
+    console.log(rule);
+
     onDelete(rule.rule_id);
     setDeleteDialogOpen(false);
   };
@@ -201,7 +203,7 @@ const RuleCard = ({
                 wordBreak: "break-word",
               }}
             >
-              {rule.sql_query}
+              {rule.sql_query_usr}
             </Typography>
           </CardContent>
         </Collapse>
@@ -265,7 +267,7 @@ const RuleManagementPage = () => {
     router.push(`/rule_creation?${params.toString()}`);
   };
 
-  const handleDeleteRule = async (ruleId: string) => {
+  const handleDeleteRule = async (ruleId: number) => {
     try {
       const response = await fetch(`${API_BASE_URL}/delete_rule/`, {
         method: "DELETE",

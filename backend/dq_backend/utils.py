@@ -1,35 +1,52 @@
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_community.utilities.sql_database import SQLDatabase
-from dotenv import load_dotenv
-from sqlalchemy import create_engine
 import ast
-from sqlalchemy.engine import Engine
-from sqlalchemy.pool import StaticPool
+import os
+import sqlite3
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Annotated, List, Literal, Tuple, TypedDict
+
+import pandas as pd
+from dotenv import load_dotenv
+from langchain_community.agent_toolkits import SQLDatabaseToolkit
+from langchain_community.utilities.sql_database import SQLDatabase
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.prompts import PromptTemplate
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
-from langchain_core.prompts import PromptTemplate
-from langchain_community.agent_toolkits import SQLDatabaseToolkit
-from typing import TypedDict, Annotated, Literal
-from sqlalchemy import text
-from sqlalchemy import text
-from .prompts import suggest_rule_prompt, generate_query_system_prompt, check_query_system_prompt, col_know_all_prompt_with_rules
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
+from sqlalchemy.pool import StaticPool
 
-import os
+from .prompts import (check_query_system_prompt,
+                      col_know_all_prompt_with_rules,
+                      generate_query_system_prompt, suggest_rule_prompt)
 
 # ------------------------------------------ setup ----------------------------------------------
 
 checkpointer = MemorySaver()
 load_dotenv()
 
-# Paths
-DATA_BASE_PATH_SOURCE = r"C:\Users\ArshadShaikh\Desktop\React\hackathon\data-quality-genai\backend\data\source_data"
-DB_PATH_SOURCE = r"C:\Users\ArshadShaikh\Desktop\React\hackathon\data-quality-genai\backend\data\source_data\conventional_power_plants\conventional_power_plants.sqlite"
+DATABASE_NAME = "sample_mdm_db"
+SOURCE_TABLE_NAME = "meter_data"
+RULE_STORAGE_TABLE = "rule_storage"
+RULE_RESULT_TABLE = "result_table"
 
-DATA_BASE_PATH_RULES = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "rules")
+# Get the absolute path of the folder where utils.py lives
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Go one level up (because utils.py is inside dq_backend)
+PROJECT_ROOT = os.path.dirname(BASE_DIR)
+# Build paths relative to project root
+DATA_BASE_PATH_SOURCE = os.path.join(PROJECT_ROOT, "data", "source_data")
+DB_PATH_SOURCE = os.path.join(DATA_BASE_PATH_SOURCE, "sample_mdm_db", "sample_mdm_db.sqlite")  # table name = meter_data
+
+DATA_BASE_PATH_RULES = os.path.join(PROJECT_ROOT, "data", "rules")
 DB_PATH_RULES = os.path.join(DATA_BASE_PATH_RULES, "rule_management.sqlite")
+
+DATA_BASE_PATH_RESULT = os.path.join(PROJECT_ROOT, "data", "result")
+DB_PATH_RESULT = os.path.join(DATA_BASE_PATH_RESULT, "result_db", "result_db.sqlite")
+
 
 # Load database
 def load_database(db_path=DATA_BASE_PATH_SOURCE) -> Engine:
@@ -43,9 +60,6 @@ def get_llm():
 
 # Get db
 def get_db(db_path):
-    print(f"Creating database engine for path: {db_path}")
-    if not os.path.exists(db_path):
-        raise FileNotFoundError(f"Database file not found at {db_path}")
     engine = create_engine(f"sqlite:///{db_path}", poolclass=StaticPool)
     db = SQLDatabase(engine)
     return db
@@ -53,6 +67,7 @@ def get_db(db_path):
 llm = get_llm()
 db_source = get_db(DB_PATH_SOURCE)
 db_rules = get_db(DB_PATH_RULES)
+db_result = get_db(DB_PATH_RESULT)
 
 # --------------------------------------- general utils ----------------------------------------------
 
@@ -109,7 +124,7 @@ def get_query_test_results(query: str, column_name, table_name):
     results = ast.literal_eval(results)
     list_good_rows = [row[0] for row in results]
     
-    query_to_get_total_rows = f"SELECT COUNT({column_name}) AS row_count FROM {table_name};"
+    query_to_get_total_rows = f"SELECT COUNT(*) AS row_count FROM {table_name};"
     result = db_source.run(query_to_get_total_rows)
     if result:
         result = ast.literal_eval(result)
@@ -134,31 +149,13 @@ def run_query(query: str, db_path=DATA_BASE_PATH_SOURCE):
         return result.fetchall()
 
 # Insert rule in the rules storage table
-def insert_rule(rule_id, rule, table_name, column_name, rule_category, sql_query):
-    query = text("""
-        INSERT INTO rule_storage (rule_id, rule, table_name, column_name, rule_category, sql_query)
-        VALUES (:rule_id, :rule, :table_name, :column_name, :rule_category, :sql_query)
-    """)
-    
-    # Use parameterized query with dictionary of parameters
-    params = {
-        'rule_id': rule_id,
-        'rule': rule,
-        'table_name': table_name,
-        'column_name': column_name,
-        'rule_category': rule_category,
-        'sql_query': sql_query
-    }
-    
-    try:
-        engine = create_engine(f"sqlite:///{DB_PATH_RULES}", poolclass=StaticPool)
-        with engine.connect() as conn:
-            conn.execute(query, params)
-            conn.commit()
-        print(f"✅ Rule '{rule_id}' inserted successfully.")
-    except Exception as e:
-        print(f"Error inserting rule: {str(e)}")
-        raise e
+def insert_rule(rule, table_name, column_name, rule_category, sql_query_usr, sql_query_val):
+    query = f"""
+        INSERT INTO rule_storage (rule, table_name, column_name, rule_category, sql_query_usr, sql_query_val)
+        VALUES ('{rule}', '{table_name}', '{column_name}', '{rule_category}', '{sql_query_usr}', '{sql_query_val}');
+    """
+    db_rules.run(query)
+    print(f"✅ Rule inserted successfully.")
 
 # Get top values from a column
 def get_top_values(table_name: str, column_name: str, db_path=DATA_BASE_PATH_SOURCE, limit: int = 200):
@@ -173,9 +170,9 @@ def get_top_values(table_name: str, column_name: str, db_path=DATA_BASE_PATH_SOU
 
 # Delete rule from the rules storage table
 def delete_rule(rule_id):
-    query = f"DELETE FROM rule_storage WHERE rule_id = '{rule_id}'"
+    query = f"DELETE FROM rule_storage WHERE rule_id = {int(rule_id)}"
     db_rules.run(query)
-    print(f"✅ Rule '{rule_id}' deleted successfully (if it existed).")
+    print(f"✅ Rule {rule_id} deleted successfully (if it existed).")
 
 # Get existing rules on a column
 def get_existing_rules_on_column(column_name, table_name):
@@ -188,14 +185,17 @@ def get_existing_rules_on_column(column_name, table_name):
     return flat_list
 
 # Get all rules for a table
-def get_all_rules_of_table(table_name):
-    query = f"SELECT rule_id, rule, table_name, column_name, rule_category, sql_query FROM rule_storage WHERE table_name = '{table_name}'"
+def get_all_rules_of_table(table_name, column_name=None):
+    predicate=''
+    if column_name:
+        predicate = f"AND column_name = '{column_name}'"
+
+    query = f"SELECT rule_id, rule, table_name, column_name, rule_category, sql_query_usr FROM rule_storage WHERE table_name = '{table_name}' {predicate}"
     results = db_rules.run(query)
-    # breakpoint()
     if not results:
         return []
     results = ast.literal_eval(results)
-    keys = ["rule_id","rule", "table_name", "column_name", "rule_category", "sql_query"]
+    keys = ["rule_id","rule", "table_name", "column_name", "rule_category", "sql_query_usr"]
     # convert each tuple into a dictionary
     dict_list = [dict(zip(keys, row)) for row in results]
 
@@ -203,64 +203,11 @@ def get_all_rules_of_table(table_name):
 
 # load table and its values - chunk by chunk
 def load_table_values(table_name, offset, limit):
-    try:
-        print(f"Database path: {DB_PATH_SOURCE}")
-        
-        # First get list of tables
-        tables_query = """
-        SELECT 
-            m.name as table_name,
-            m.type as table_type,
-            m.sql as table_sql
-        FROM sqlite_master m
-        WHERE m.type = 'table'
-        """
-        tables_result = db_source.run(tables_query)
-        print(f"Tables query result: {tables_result}")
-        
-        if not tables_result:
-            print("No tables found in database")
-            return ["No tables found"], []
-        
-        tables = ast.literal_eval(tables_result)
-        print(f"Raw tables data: {tables}")
-        
-        # Extract table names and their create statements
-        available_tables = []
-        for table in tables:
-            print(f"Table info: {table}")
-            available_tables.append(table[0])
-        print(f"Available tables: {available_tables}")
-        
-        if table_name not in available_tables:
-            print(f"Table {table_name} not found in available tables")
-            return [f"Table {table_name} not found. Available tables: {available_tables}"], []
-        
-        query = f"""
-        SELECT * 
-        FROM {table_name} 
-        LIMIT {limit} OFFSET {offset}
-        """
-        print(f"Executing query: {query}")
-        results = db_source.run(query)
-        print(f"Query results: {results}")
-        
-        if not results:
-            return ["No data found"], []
-            
-        results = ast.literal_eval(results)
-        columns_query = f"PRAGMA table_info({table_name})"
-        columns_result = db_source.run(columns_query)
-        columns_result = ast.literal_eval(columns_result)
-        columns = [col[1] for col in columns_result]
-        
-        # Convert results to list of dicts
-        data = [dict(zip(columns, row)) for row in results]
-        return columns, data
-        
-    except Exception as e:
-        print(f"Error in load_table_values: {str(e)}")
-        return [f"Error: {str(e)}"], []
+    query = f"""
+    SELECT * 
+    FROM {table_name} 
+    LIMIT {limit} OFFSET {offset}
+    """
     results = db_source.run(query)  # returns list of tuples
     if not results:
         return None, None
@@ -294,6 +241,48 @@ def load_col_values(table_name, column_name, offset, limit):
         values_dict[offset + i + 1] = row[0]
     
     return values_dict
+
+# converts the user output query to validation query
+def transform_query(query: str) -> str:
+    splitted_query = query.strip().split("FROM")
+    after_from = splitted_query[1]
+    
+    # Replace everything before FROM with 'select row_num '
+    new_query = f"select row_num FROM {after_from.strip()}"
+    return new_query
+
+#
+def get_total_rows(table_name):
+    # total count
+    query = f"SELECT COUNT(*) AS total_count FROM {table_name};"
+    result = db_source.run(query)
+    result = ast.literal_eval(result)
+    total_rows = result[0][0]
+
+    return total_rows
+
+# get info on the column
+def get_info(table_name, column_name):
+    # total count
+    query = f"SELECT COUNT(*) AS total_count FROM {table_name};"
+    result = db_source.run(query)
+    result = ast.literal_eval(result)
+    total_rows = result[0][0]
+    # total unique count
+    query = f"SELECT COUNT(DISTINCT {column_name}) AS unique_count FROM {table_name} WHERE {column_name} IS NOT NULL;"
+    result = db_source.run(query)
+    result = ast.literal_eval(result)
+    total_unique_values = result[0][0]
+    # total null values
+    query = f"SELECT COUNT(*) AS null_count FROM {table_name} WHERE {column_name} IS NULL;"
+    result = db_source.run(query)
+    result = ast.literal_eval(result)
+    total_null_values = result[0][0]
+
+    return total_rows, total_unique_values, total_null_values
+
+
+
 
 # ------------------------------------------ agents and llm calls ---------------------------------------------------
 
@@ -440,9 +429,8 @@ def convert_rule_to_sql(rule, table_name, column_name):
         question = result.split(":")[-1].strip()
         output = question
         query_ready = False
-
+    print(query_ready, output)
     return query_ready, output
-
 
 chatbot = know_all_agent()
 
@@ -451,3 +439,212 @@ def call_know_all_agent():
     response = chatbot.invoke({"messages":[HumanMessage(content=user_input)],"current_column":"postcode"},
                     config={"configurable":{"thread_id":"thread_id-1"}})
     return response["messages"][-1].content
+
+
+# ---------------------------------------- ETL utils ----------------------------------------------
+def create_connection(db_path):
+    conn = sqlite3.connect(db_path)
+    # Create a cursor object to execute SQL commands
+    cursor = conn.cursor()
+    print(f"Connection created with provided database")
+    return cursor, conn
+
+
+def close_connection(conn):
+    # Close the connection
+    conn.close()
+    print(f"Connection to database is closed")
+
+
+def execute_query(cur, query_string):
+    cur.execute(query_string)
+    result = cur.fetchall()
+    return result
+
+
+def get_sql_queries_for_rules(rule_id_list: list) -> list:
+    predicate = ""
+    if rule_id_list:
+        rule_str = ", ".join(f"'{rule_num}'" for rule_num in rule_id_list)
+        predicate = f"WHERE rule_id in ({rule_str})"
+
+    sql_query = f"SELECT rule_id, rule_category, sql_query_val FROM {RULE_STORAGE_TABLE} {predicate}"
+
+    raw_result = db_rules._execute(sql_query)
+    rule_val_query_list = [tuple(row.values()) for row in raw_result]
+    return rule_val_query_list
+
+
+def process_single_rule_sqlite(
+    rule_number: int, log_level: str, rule_val_query: str
+) -> List[Tuple]:
+    """
+    Return rows from the source_table that are NOT included in the rule_val_query, with row numbers.
+
+    Args:
+        db_path (str): Path to the SQLite database file.
+        rule_number (int): Identifier for the rule being processed.
+        rule_val_query (str): SQL validation query generated for the natural language rule on source_table.
+
+    Returns:
+        List of tuples: Each tuple represents a row (with a row number) not returned by the rule_val_query.
+    """
+    try:
+
+        # Ensure rule_val_query selects row_num column from source table
+
+        query = (
+            f"WITH filtered_rows AS ("
+            f" {rule_val_query})"
+            f" SELECT ns.row_num "
+            f" FROM {SOURCE_TABLE_NAME} ns"
+            f" LEFT JOIN filtered_rows fr ON ns.row_num = fr.row_num"
+            f" WHERE fr.row_num IS NULL;"
+        )
+
+        raw_result = db_source._execute(query)
+        failing_row_numbers = [row["row_num"] for row in raw_result]
+
+        return (rule_number, failing_row_numbers, log_level)
+
+    except Exception as e:
+        print(f"Error in processing rule number {rule_number}:\n{e}")
+        return rule_number, [], log_level
+
+
+def process_table_rules_parallel(rule_queries):
+    """
+    Executes all rules in parallel on SQLite DB and returns:
+    - final_df: Combined result of all queries
+    - failed_df: Full table A with failed_rules column
+    """
+    results = {}
+
+    with ThreadPoolExecutor() as executor:
+        futures = [
+            executor.submit(
+                process_single_rule_sqlite,
+                rule_number=rule_num,
+                log_level=log_level,
+                rule_val_query=sql,
+            )
+            for rule_num, log_level, sql in rule_queries
+        ]
+
+        for future in as_completed(futures):
+            rule_number, result_df, log_level = future.result()
+            results[rule_number] = (log_level, result_df)
+
+    return results
+
+
+def add_passed_rules_column(df):
+    # Clean up whitespace and empty strings
+    df = df.fillna("").applymap(lambda x: x.strip() if isinstance(x, str) else x)
+
+    col_list = ["info", "warning", "error"]  # whatever your rule columns are
+    col_list = [col for col in col_list if col in df.columns.tolist()]
+
+    # Set to collect all unique rule numbers
+    all_rules = set()
+
+    for col in col_list:
+        for val in df[col]:
+            if pd.notnull(val):
+                val_str = str(val)
+                all_rules.update(r.strip() for r in val_str.split(",") if r.strip())
+
+    # Convert to sorted list for consistency
+    all_rules = sorted(all_rules)
+
+    # Define function to get passed rules for a row
+    def get_passed_rules(row):
+        used_rules = set()
+
+        for col in col_list:
+            val = row.get(col, "")
+            if pd.notnull(val):
+                val_str = str(val)
+                used_rules.update(r.strip() for r in val_str.split(",") if r.strip())
+
+        passed = [r for r in all_rules if r not in used_rules]
+        return ", ".join(passed)
+
+    # Add 'passed_rules' column
+    df["passed_rules"] = df.apply(get_passed_rules, axis=1)
+
+    return df
+
+
+def save_result_table_to_db(df):
+    _, conn = create_connection(DB_PATH_RESULT)
+    df.to_sql(RULE_RESULT_TABLE, conn, if_exists="replace", index=False)
+    close_connection(conn)
+
+
+def process_and_save_rule_results(result):
+    try:
+        _, conn = create_connection(DB_PATH_SOURCE)
+        query_string = f"SELECT * FROM {SOURCE_TABLE_NAME}"
+        # df = execute_query(cur, query_string)
+        df = pd.read_sql(query_string, conn)
+
+        # Update index to start from 1
+        df.index = range(1, len(df) + 1)
+
+        # Identify all unique categories
+        categories = set(cat for cat, _ in result.values())
+
+        # Initialize empty columns for each category
+        for category in categories:
+            df[category] = ""
+
+        # For each rule, add rule name to relevant category column for failed rows
+        for rule, (category, rows) in result.items():
+            for row in rows:
+                current = df.at[row, category]
+                df.at[row, category] = f"{current}, {rule}"
+
+        # Clean up spacing
+        df = df.applymap(lambda x: x.strip(", ").strip() if isinstance(x, str) else x)
+
+        df = add_passed_rules_column(df)
+
+        column_to_be_renamed = [
+            col for col in ["info", "warning", "error"] if col in df.columns.tolist()
+        ]
+        columns_replaced_with = [f"failed_{col}_rules" for col in column_to_be_renamed]
+        df = df.rename(columns=dict(zip(column_to_be_renamed, columns_replaced_with)))
+
+        # Save to result DB
+        print("Saving results in database...")
+        save_result_table_to_db(df)
+
+    except Exception as e:
+        print(f"Error in updating result table:\n{e}")
+    finally:
+        close_connection(conn)
+
+
+# Get rule result table
+def get_rule_result_table():
+    query = f"SELECT * FROM {RULE_RESULT_TABLE}"
+    results = db_result.run(query)  # returns list of tuples
+    if not results:
+        return []
+    results = ast.literal_eval(results)
+
+    columns_query = (
+        f"PRAGMA table_info({RULE_RESULT_TABLE})"  # For SQLite, get column names
+    )
+    column_result = db_result.run(columns_query)
+
+    if not column_result:
+        return None, None
+
+    column_result = ast.literal_eval(column_result)
+    columns = [col[1] for col in column_result]
+
+    # Convert to list of dicts
+    data = [dict(zip(columns, row)) for row in results]
+    return data
