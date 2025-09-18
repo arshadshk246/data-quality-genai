@@ -137,7 +137,7 @@ const RuleCard = ({
           title={
             <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
               <Typography variant="h6" noWrap>
-                {rule.rule || "N/A"}
+                Rule ID: {rule.rule_id || "N/A"}
               </Typography>
               <Chip
                 icon={getCategoryIcon(rule.rule_category)}

@@ -152,7 +152,7 @@ def run_query(query: str, db_path=DATA_BASE_PATH_SOURCE):
 def insert_rule(rule, table_name, column_name, rule_category, sql_query_usr, sql_query_val):
     query = f"""
         INSERT INTO rule_storage (rule, table_name, column_name, rule_category, sql_query_usr, sql_query_val)
-        VALUES ('{rule}', '{table_name}', '{column_name}', '{rule_category}', '{sql_query_usr}', '{sql_query_val}');
+        VALUES ("{rule}", "{table_name}", "{column_name}", "{rule_category}", "{sql_query_usr}", "{sql_query_val}");
     """
     db_rules.run(query)
     print(f"✅ Rule inserted successfully.")
@@ -244,11 +244,15 @@ def load_col_values(table_name, column_name, offset, limit):
 
 # converts the user output query to validation query
 def transform_query(query: str) -> str:
-    splitted_query = query.strip().split("FROM")
-    after_from = splitted_query[1]
-    
-    # Replace everything before FROM with 'select row_num '
-    new_query = f"select row_num FROM {after_from.strip()}"
+    if "GROUP BY" in query or "group by" in query:
+        splitted_query = query.strip().split("SELECT")
+        new_query = f"SELECT MIN(row_num) AS row_num, {splitted_query[1].strip()}"
+    else:
+        splitted_query = query.strip().split("FROM")
+        after_from = splitted_query[1]
+        
+        # Replace everything before FROM with 'select row_num '
+        new_query = f"select row_num FROM {after_from.strip()}"
     return new_query
 
 #
@@ -618,6 +622,7 @@ def process_and_save_rule_results(result):
 
         # Save to result DB
         print("Saving results in database...")
+        df = df.replace('', None)
         save_result_table_to_db(df)
 
     except Exception as e:

@@ -83,6 +83,7 @@ export default function RuleCreationPage() {
     goodRows: number[];
     selectedColumn: string | null;
   } | null>(null);
+  const [sql_query_val, setSql_query_val] = useState<string>("")
 
   // Fetch table data when component mounts
   React.useEffect(() => {
@@ -128,6 +129,9 @@ export default function RuleCreationPage() {
       setPassPercent(0);
       return;
     }
+    const selectRegex = /^SELECT\s+.*?\s+FROM\s+/is;
+    const sql_val = sqlQuery.replace(selectRegex, "SELECT row_num FROM ");
+    setSql_query_val(sql_val);
 
     try {
       const response = await fetch(`${API_BASE_URL}/validate_sql_query/`, {
@@ -136,11 +140,13 @@ export default function RuleCreationPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          sql_query: sqlQuery,
+          sql_query: sql_query_val,
           table_name: tableName,
           column_name: selectedColumn,
         }),
       });
+      console.log(`Validate button clicked ${sql_query_val}`);
+      
       if (!response.ok) throw new Error("API request failed");
 
       const data = await response.json();
@@ -212,6 +218,10 @@ export default function RuleCreationPage() {
     }
 
     setSubmitLoading(true);
+    console.log(sqlQuery);
+    
+
+    
     try {
       const response = await fetch(`${API_BASE_URL}/add_rule/`, {
         method: "PUT",
@@ -224,10 +234,19 @@ export default function RuleCreationPage() {
           column_name: selectedColumn,
           rule_category: selectedCategory,
           sql_query_usr: sqlQuery,
-          sql_query_val: sqlQuery
+          sql_query_val: sql_query_val
         }),
       });
 
+      console.log(
+        generatedRule,
+        tableName,
+        selectedColumn,
+        selectedCategory,
+        sqlQuery,
+        sql_query_val
+      );
+      
       if (!response.ok) {
         const errorData = await response.text();
         console.error("Server response:", errorData);
